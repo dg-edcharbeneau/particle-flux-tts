@@ -1,0 +1,262 @@
+/* The canvas fills the window; the overlay floats above it.
+   The overlay container ignores pointer events so orbit/zoom still work
+   everywhere except on the panels themselves. */
+
+:root {
+  --bg: #000;
+  --fg: #e8ecf1;
+  --muted: #8b97a8;
+  --panel: rgba(10, 14, 20, 0.62);
+  --panel-border: rgba(255, 255, 255, 0.1);
+  --accent: #6ea8ff;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--fg);
+  font: 14px/1.5 ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+#viz {
+  position: fixed;
+  inset: 0;
+  display: block;
+  z-index: 0;
+}
+
+#overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  justify-items: start;
+  gap: 16px;
+  padding: 20px;
+  pointer-events: none;
+}
+
+/* Accent follows the conversation state — the same story the particles tell. */
+#overlay[data-state="listening"] { --accent: #13ef93; }
+#overlay[data-state="thinking"]  { --accent: #9d7cff; }
+#overlay[data-state="speaking"]  { --accent: #ff5fd2; }
+#overlay[data-state="error"]     { --accent: #ff6b5e; }
+
+.panel {
+  pointer-events: auto;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  max-width: min(440px, calc(100vw - 40px));
+}
+
+/* --- header ---------------------------------------------------------------- */
+.hero {
+  grid-row: 1;
+}
+
+.nav {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.nav-link {
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.nav-link:hover {
+  color: var(--fg);
+}
+
+.nav-link[aria-current="page"] {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.title {
+  margin: 0 0 6px;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.blurb {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+/* --- status ---------------------------------------------------------------- */
+.status-panel {
+  grid-row: 3;
+  align-self: end;
+  min-width: 320px;
+}
+
+.status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 10px var(--accent);
+  flex: none;
+}
+
+#overlay[data-state="idle"] .dot {
+  background: var(--muted);
+  box-shadow: none;
+}
+
+#overlay[data-state="connecting"] .dot,
+#overlay[data-state="listening"] .dot {
+  animation: pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  50% { opacity: 0.35; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #overlay[data-state="connecting"] .dot,
+  #overlay[data-state="listening"] .dot {
+    animation: none;
+  }
+}
+
+.source {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.meter {
+  height: 3px;
+  margin: 10px 0 12px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.09);
+  overflow: hidden;
+}
+
+.meter-fill {
+  height: 100%;
+  background: var(--accent);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 60ms linear;
+}
+
+/* --- controls -------------------------------------------------------------- */
+.controls {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.btn {
+  font: inherit;
+  font-size: 13px;
+  padding: 7px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--panel-border);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--fg);
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+}
+
+.btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.btn-primary {
+  background: var(--accent);
+  border-color: transparent;
+  color: #06080c;
+  font-weight: 600;
+}
+
+.btn-primary:hover:not(:disabled) {
+  filter: brightness(1.1);
+  background: var(--accent);
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.error {
+  margin: 10px 0 0;
+  color: #ff9b91;
+  font-size: 12.5px;
+}
+
+/* --- transcript ------------------------------------------------------------ */
+.transcript-panel {
+  grid-row: 2;
+  align-self: end;
+  background: none;
+  border: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  padding: 0;
+  pointer-events: none;
+  text-shadow: 0 1px 12px rgba(0, 0, 0, 0.9);
+}
+
+.transcript {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.turn {
+  margin: 4px 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.turn:last-child {
+  color: var(--fg);
+}
+
+.interim {
+  margin: 6px 0 0;
+  color: var(--accent);
+  font-size: 15px;
+  min-height: 1.5em;
+}

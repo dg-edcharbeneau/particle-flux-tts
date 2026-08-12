@@ -1,0 +1,27 @@
+{
+  "name": "particle-flux-tts",
+  "version": "1.0.0",
+  "description": "A Three.js particle swarm driven in realtime by Deepgram Flux (STT) and Aura-2 (TTS) audio.",
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node server/server.mjs",
+    "dev": "node --watch server/server.mjs"
+  },
+  "keywords": [
+    "deepgram",
+    "flux",
+    "aura",
+    "voice",
+    "three.js",
+    "audio-visualization",
+    "realtime"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@deepgram/sdk": "^5.5.0",
+    "dotenv": "^16.4.5"
+  }
+}
