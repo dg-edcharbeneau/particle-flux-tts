@@ -53,7 +53,7 @@ export function createViz({ mapping, getAudio }) {
     0.1,
     2000
   );
-  camera.position.set(0, 38, 110);
+  camera.position.set(...(mapping.camera ?? VIZ.camera));
 
   const renderer = new THREE.WebGLRenderer({
     antialias: true,

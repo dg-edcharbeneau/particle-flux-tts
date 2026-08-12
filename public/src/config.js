@@ -7,20 +7,61 @@ export const DEEPGRAM_WS = "wss://api.deepgram.com";
 // Flux is built for conversational turn-taking: it emits StartOfTurn,
 // EagerEndOfTurn, TurnResumed and EndOfTurn events, which is exactly what a
 // voice UI needs for VAD and barge-in — no manual endpointing math.
+//
+// `model` is only a fallback: the real value comes from DEEPGRAM_STT_MODEL in
+// the server's .env, applied by applyServerConfig() below during boot.
 export const STT = {
   model: "flux-general-en",
   encoding: "linear16",
   sampleRate: 16000, // Flux recommends 16 kHz for raw linear16.
 };
 
-// --- Text-to-speech: Deepgram Aura-2 (/v1/speak) -----------------------------
+// --- Text-to-speech: Deepgram Flux TTS (/v2/speak) ---------------------------
 // Streamed so playback — and therefore the visualization — starts on the first
 // audio frame instead of waiting for the whole utterance.
+//
+// Flux TTS is the current generation: streaming-first, expressive by default,
+// with native interruption handling, which pairs naturally with Flux STT's
+// turn detection. tts.js picks the endpoint from this name — `flux-*` voices
+// go to /v2/speak, `aura*` voices fall back to /v1/speak (still the only
+// option outside English).
+//
+// `model` is only a fallback: the real value comes from DEEPGRAM_TTS_VOICE in
+// the server's .env, applied by applyServerConfig() below during boot.
 export const TTS = {
-  model: "aura-2-thalia-en",
+  model: "flux-haley-en",
   encoding: "linear16",
-  sampleRate: 24000, // aura-2 streams 24 kHz linear16 cleanly.
+  sampleRate: 24000, // valid on both endpoints (8k / 16k / 24k / 48k).
 };
+
+/**
+ * Pull server-owned settings (.env) into the client config.
+ *
+ * Called once at boot, long before any socket opens. This mutates STT and TTS
+ * in place rather than returning new objects, because stt.js, tts.js and
+ * conversation.js import those bindings directly — mutating means the values
+ * simply arrive, with no async config threaded through every module.
+ *
+ * A failure here is not fatal: we keep the built-in models and carry on, since
+ * a missing config endpoint shouldn't take the whole demo down.
+ *
+ * @returns {Promise<{sttModel: string, ttsVoice: string}>} what's in effect
+ */
+export async function applyServerConfig() {
+  try {
+    const res = await fetch("/api/config", { cache: "no-store" });
+    if (!res.ok) throw new Error(`config request failed (${res.status})`);
+    const { ttsVoice, sttModel } = await res.json();
+    if (ttsVoice) TTS.model = ttsVoice;
+    if (sttModel) STT.model = sttModel;
+  } catch (err) {
+    console.warn(
+      `Could not load server config; using defaults (${STT.model}, ${TTS.model}).`,
+      err
+    );
+  }
+  return { sttModel: STT.model, ttsVoice: TTS.model };
+}
 
 // --- Microphone capture ------------------------------------------------------
 // ~80 ms chunks are Deepgram's recommended streaming granularity: small enough
@@ -63,6 +104,23 @@ export const ANALYSIS = {
 export const VIZ = {
   count: 20000,
   span: 120, // world units across the particle grid
+  // Default camera — a low, near-horizon view (16.8° above the plane) placed so
+  // the field runs off the bottom of the frame and well past both side edges.
+  //
+  // The angle is a deliberate compromise. For a *finite* field viewed from
+  // outside it, filling the bottom of the frame and sitting near the horizon
+  // pull against each other: at 11° the near edge lands mid-screen and leaves
+  // roughly a third of the frame empty below it, and getting it lower without
+  // raising the angle means standing among the particles. 16.8° fills the frame
+  // while still reading as a view across the field rather than down onto it.
+  //
+  // Two other things that shaped this: a wider FOV counterintuitively *shrinks*
+  // how much of the frame the field covers, so 60° stays; and apparent width
+  // oscillates through the 180° sweep — the field overflows the frame face-on
+  // and pulls in corner-on, which is inherent to orbiting a square.
+  //
+  // A mapping may export its own `camera` to override this.
+  camera: [0, 26, 86],
   size: 0.25, // tetrahedron radius
   lerpPerSec: 9, // how fast a particle chases its target position
   // Bloom is fill-rate hungry and 20k instances already cost us. Capping the

@@ -1,8 +1,9 @@
 # Particle Flux
 
 A 20,000-instance Three.js particle field driven in realtime by a Deepgram voice
-loop: **Flux** (streaming STT) for what you say, **Aura-2** (streaming TTS) for
-what comes back. The same field renders three different ways — pick one from the
+loop: **Flux STT** (`/v2/listen`) for what you say, **Flux TTS** (`/v2/speak`)
+for what comes back — turn detection and expressive synthesis from the same
+model family, including native interruption on both sides. The same field renders three different ways — pick one from the
 nav in the top-left.
 
 The demo **echoes** each finished turn back to you, so you can see and hear both
@@ -18,6 +19,36 @@ npm run dev
 
 Open <http://localhost:3031>, click **Start listening**, and talk.
 
+### Changing the models
+
+Both live in `.env` — set and restart, no code change needed:
+
+```bash
+DEEPGRAM_TTS_VOICE=flux-cliff-en
+DEEPGRAM_STT_MODEL=flux-general-en
+```
+
+The server prints both at startup — along with the endpoint each resolves to —
+and serves them to the browser from `/api/config`. Unset or blank falls back to
+`flux-haley-en` and `flux-general-en`.
+
+**The voice name selects the API generation**, handled in `tts.js`:
+
+| Voice | Endpoint | Notes |
+|---|---|---|
+| `flux-*` | `/v2/speak` | Flux TTS. Expressive, native interruption. English only. |
+| `aura*` | `/v1/speak` | Aura-2. Use for languages Flux TTS doesn't cover yet. |
+
+Browse the [Flux TTS voices](https://developers.deepgram.com/docs/flux-tts/voices)
+— `flux-cliff-en` (deep male), `flux-kit-en` (British), `flux-maeve-en` (Irish),
+`flux-priya-en` (Indian), `flux-sharon-en` (Australian) — or the
+[Aura-2 catalogue](https://developers.deepgram.com/docs/tts-models) for
+non-English.
+
+**Changing the STT model is not equivalent.** Turn-taking and barge-in are
+driven entirely by Flux `TurnInfo` events, so a non-Flux model will still
+transcribe but turns will never commit. The server warns loudly if you set one.
+
 Start talking again *while it's speaking* to see barge-in — Flux's `StartOfTurn`
 cuts the response off instantly, and the field snaps back from magenta to green.
 
@@ -28,6 +59,7 @@ cuts the response off instantly, and the field snaps back from magenta to green.
 | `/` | [Dual-band interference](public/src/mappings/interference.js) | Low band drives Wave Source A, high band drives Source B, mid band pushes the sources apart. Vowels spread the fringes; consonants tighten them. |
 | `/amplitude.html` | [Amplitude breathing](public/src/mappings/amplitude.js) | Distance from center is *age*, not space — each syllable is born at the origin and travels outward as a ring. |
 | `/spectrum.html` | [Radial spectrum](public/src/mappings/spectrum.js) | A log-spaced FFT wrapped into a disc: 60 Hz at the center, 8 kHz at the rim. |
+| `/resonance.html` | [Voice resonance](public/src/mappings/resonance.js) | The two sources become *speakers*: you radiate from the left in green, the agent from the right in magenta, and their wavefronts interfere where they meet. |
 
 Conversation state drives the palette in all three: **green** while listening,
 **violet** while thinking, **magenta** while speaking.
@@ -37,7 +69,7 @@ Conversation state drives the palette in all three: **green** while listening,
 ```
                     ┌─ Flux STT  (/v2/listen)  ──┐
   mic ── worklet ───┤                            ├── conversation ─┬─ ui
-                    └─ Aura-2 TTS (/v1/speak) ───┘     (state)     │
+                    └─ Flux TTS  (/v2/speak) ────┘     (state)     │
                                    │                               │
                        analyser taps ──── audio bus ──── viz ── mapping
 ```
@@ -72,7 +104,10 @@ through `onChunk` so audio starts on the first finished sentence.
 
 ## Credits
 
-The original particle swarm was exported from <https://casberry.in/> and is
-preserved unmodified in [`reference/casberry-export.html`](reference/casberry-export.html).
+The particle swarm was exported from <https://casberry.in/>. Both exports are
+preserved unmodified in [`reference/`](reference/): `casberry-export.html` (the
+original) and `audo-export.html` (the tuned parameters the Resonance mapping is
+built from — same code, `freq` and `amp` at maximum with the sources properly
+separated).
 The voice pipeline is ported from
 [dg-edcharbeneau/voice-best-practices](https://github.com/dg-edcharbeneau/voice-best-practices/tree/main/examples/basic-html-js).

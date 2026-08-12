@@ -29,6 +29,25 @@ const PORT = Number(process.env.PORT || 3031);
 const TOKEN_TTL_SECONDS = Number(process.env.TOKEN_TTL_SECONDS || 60);
 const API_KEY = process.env.DEEPGRAM_API_KEY;
 
+// Model selection lives here rather than in the client config so it can be
+// changed with a server restart instead of a code edit. The browser picks these
+// up from /api/config at boot.
+const DEFAULT_TTS_VOICE = "flux-haley-en";
+const DEFAULT_STT_MODEL = "flux-general-en";
+const TTS_VOICE = process.env.DEEPGRAM_TTS_VOICE?.trim() || DEFAULT_TTS_VOICE;
+const STT_MODEL = process.env.DEEPGRAM_STT_MODEL?.trim() || DEFAULT_STT_MODEL;
+
+// Turn-taking here is driven entirely by Flux's TurnInfo events. Another model
+// will still transcribe, but StartOfTurn/EndOfTurn never arrive, so turns never
+// commit and barge-in stops working — worth saying out loud rather than letting
+// it look like a broken demo.
+if (!STT_MODEL.startsWith("flux-")) {
+  console.warn(
+    `\n  Warning: DEEPGRAM_STT_MODEL="${STT_MODEL}" is not a Flux model.\n` +
+      `  Turn detection and barge-in rely on Flux TurnInfo events and will not fire.\n`
+  );
+}
+
 if (!API_KEY) {
   console.error(
     "\n  Missing DEEPGRAM_API_KEY.\n" +
@@ -77,6 +96,17 @@ async function handleToken(res) {
   }
 }
 
+// --- GET /api/config ---------------------------------------------------------
+// Server-owned settings the browser needs. Nothing secret goes in here — it is
+// world-readable, so it carries model names and nothing else.
+function handleConfig(res) {
+  send(res, 200, JSON.stringify({ ttsVoice: TTS_VOICE, sttModel: STT_MODEL }), {
+    "Content-Type": "application/json; charset=utf-8",
+    // no-store so editing .env and restarting takes effect on a plain reload.
+    "Cache-Control": "no-store",
+  });
+}
+
 // --- static files ------------------------------------------------------------
 async function handleStatic(req, res) {
   // Resolve within PUBLIC_DIR and reject path traversal.
@@ -100,6 +130,9 @@ async function handleStatic(req, res) {
 const server = createServer((req, res) => {
   if (req.method === "GET" && req.url.split("?")[0] === "/api/token") {
     return handleToken(res);
+  }
+  if (req.method === "GET" && req.url.split("?")[0] === "/api/config") {
+    return handleConfig(res);
   }
   if (req.method === "GET") {
     return handleStatic(req, res);
@@ -127,5 +160,11 @@ server.listen(PORT, () => {
   console.log(`  → http://localhost:${PORT}/            interference`);
   console.log(`  → http://localhost:${PORT}/amplitude.html  amplitude`);
   console.log(`  → http://localhost:${PORT}/spectrum.html   spectrum\n`);
+  const dflt = (v) => (v ? "" : "  (default)");
+  // The voice name decides the endpoint, so show which one it resolved to —
+  // it's the difference between Flux TTS and the older Aura API.
+  const speak = TTS_VOICE.startsWith("flux-") ? "/v2/speak" : "/v1/speak";
+  console.log(`  STT:   ${STT_MODEL}  →  /v2/listen${dflt(process.env.DEEPGRAM_STT_MODEL?.trim())}`);
+  console.log(`  Voice: ${TTS_VOICE}  →  ${speak}${dflt(process.env.DEEPGRAM_TTS_VOICE?.trim())}`);
   console.log(`  Token TTL: ${TOKEN_TTL_SECONDS}s  |  API key: server-side only\n`);
 });

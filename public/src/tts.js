@@ -1,27 +1,42 @@
-// Streaming text-to-speech over a raw WebSocket to Deepgram Aura-2 (/v1/speak).
+// Streaming text-to-speech over a raw WebSocket to Deepgram.
 //
-// Same auth story as STT: browser-native subprotocol auth with a short-lived
-// token. We use a raw WebSocket here for a second reason too — the SDK's Speak
-// socket JSON-parses every incoming frame, so it can't hand us the *binary*
-// audio. Here we set binaryType = "arraybuffer" and treat binary frames as
-// audio (linear16 PCM) and text frames as JSON control messages
-// (Metadata / Flushed / Cleared / Warning).
+// Two generations of the API are supported, chosen automatically from the
+// configured voice:
 //
-// Control messages we send:
-//   Speak  { text }  - queue text to synthesize
-//   Flush            - force synthesis of everything buffered so far
-//   Clear            - drop server-side buffered audio (used for barge-in)
-//   Close            - close the stream
+//   flux-*  ->  /v2/speak  (Flux TTS — streaming-first, native interruption)
+//   aura*   ->  /v1/speak  (Aura / Aura-2 — still the only option outside English)
+//
+// Flux TTS is English-only at the time of writing, so the Aura path stays for
+// non-English voices. The protocols are close but not identical, and the
+// difference that matters here is barge-in:
+//
+//   v1: { type: "Clear" }      — drop buffered audio
+//   v2: { type: "Interrupt", playback_offset: {...} }
+//                              — drop it AND tell the server how much of the
+//                                turn the listener actually heard
+//
+// Why a raw WebSocket at all? Browser-native subprotocol auth with a
+// short-lived token, and — unlike the SDK's Speak socket, which JSON-parses
+// every incoming frame — we need the *binary* audio. So binaryType is
+// "arraybuffer": binary frames are audio (linear16 PCM), text frames are JSON
+// control messages.
 
 import { DEEPGRAM_WS, TTS } from "./config.js";
 
+/** Flux TTS lives on /v2/speak; everything else is the v1 Aura endpoint. */
+export function isFluxVoice(model) {
+  return typeof model === "string" && model.startsWith("flux-");
+}
+
 export function connectTTS({ token, onAudio, onOpen, onClose, onError, onControl }) {
+  const flux = isFluxVoice(TTS.model);
   const params = new URLSearchParams({
     model: TTS.model,
     encoding: TTS.encoding,
     sample_rate: String(TTS.sampleRate),
   });
-  const ws = new WebSocket(`${DEEPGRAM_WS}/v1/speak?${params}`, ["bearer", token]);
+  const path = flux ? "/v2/speak" : "/v1/speak";
+  const ws = new WebSocket(`${DEEPGRAM_WS}${path}?${params}`, ["bearer", token]);
   ws.binaryType = "arraybuffer";
 
   ws.onopen = () => onOpen?.();
@@ -30,13 +45,20 @@ export function connectTTS({ token, onAudio, onOpen, onClose, onError, onControl
   ws.onmessage = (e) => {
     if (e.data instanceof ArrayBuffer) {
       onAudio?.(e.data); // linear16 PCM
-    } else {
-      try {
-        onControl?.(JSON.parse(e.data));
-      } catch {
-        /* ignore */
-      }
+      return;
     }
+    let msg;
+    try {
+      msg = JSON.parse(e.data);
+    } catch {
+      return;
+    }
+    // v2 has an explicit fatal Error message; surface it rather than letting
+    // the socket just go quiet.
+    if (msg?.type === "Error") {
+      onError?.(new Error(msg.description || msg.message || "TTS error"));
+    }
+    onControl?.(msg);
   };
 
   const send = (obj) => {
@@ -44,18 +66,42 @@ export function connectTTS({ token, onAudio, onOpen, onClose, onError, onControl
   };
 
   return {
+    /** Which wire protocol this socket ended up on — handy for logging. */
+    endpoint: path,
+
     /** Queue text. Empty text returns a 400 from Deepgram, so we guard it. */
     speak(text) {
       const t = (text ?? "").trim();
       if (t) send({ type: "Speak", text: t });
     },
+
+    /** End the active turn: drain the buffer and synthesize what's left. */
     flush() {
       send({ type: "Flush" });
     },
-    /** Barge-in: tell the server to discard audio it hasn't sent yet. */
-    clear() {
-      send({ type: "Clear" });
+
+    /**
+     * Barge-in — discard audio the server hasn't sent yet.
+     *
+     * @param {number} [heardMs] how much of the turn actually reached the
+     *   listener's ears. v2 uses it to record where the speech was cut; v1 has
+     *   no equivalent and ignores it.
+     */
+    interrupt(heardMs) {
+      if (!flux) {
+        send({ type: "Clear" });
+        return;
+      }
+      const msg = { type: "Interrupt" };
+      if (Number.isFinite(heardMs)) {
+        msg.playback_offset = {
+          type: "time_ms",
+          value: Math.max(0, Math.round(heardMs)),
+        };
+      }
+      send(msg);
     },
+
     close() {
       send({ type: "Close" });
       try {

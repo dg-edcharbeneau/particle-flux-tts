@@ -109,8 +109,12 @@ export function createConversation({
     activeTurnIndex = Number.NaN;
     generating = false;
     outstandingFlushes = 0;
+    // Read how much the listener actually heard BEFORE flushing — flush()
+    // resets the player's timeline, and Flux TTS wants that offset to record
+    // where the turn was cut. (The v1 Aura path ignores it.)
+    const heardMs = player?.playedMs ?? 0;
     player?.flush();
-    tts?.clear();
+    tts?.interrupt(heardMs);
   }
 
   // Decide whether playback for the current turn is truly finished. Because we

@@ -23,6 +23,7 @@ const PAGES = [
   { id: "interference", href: "/index.html", label: "Interference" },
   { id: "amplitude", href: "/amplitude.html", label: "Amplitude" },
   { id: "spectrum", href: "/spectrum.html", label: "Spectrum" },
+  { id: "resonance", href: "/resonance.html", label: "Resonance" },
 ];
 
 export function createUI({ mapping, onStart, onStop, onInterrupt }) {

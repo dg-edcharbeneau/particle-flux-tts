@@ -15,12 +15,14 @@ import { createUI } from "./ui.js";
 import { createConversation } from "./conversation.js";
 import { createAudioBus } from "./audio-bus.js";
 import { createViz } from "./viz.js";
+import { applyServerConfig } from "./config.js";
 
 // Dynamic imports so each page ships only the mapping it actually uses.
 const MAPPINGS = {
   interference: () => import("./mappings/interference.js"),
   amplitude: () => import("./mappings/amplitude.js"),
   spectrum: () => import("./mappings/spectrum.js"),
+  resonance: () => import("./mappings/resonance.js"),
 };
 
 function friendlyError(err) {
@@ -54,7 +56,13 @@ function preflight() {
 export async function boot(mappingId) {
   const load = MAPPINGS[mappingId];
   if (!load) throw new Error(`Unknown mapping "${mappingId}"`);
-  const mapping = (await load()).createMapping();
+
+  // Both are independent, so fetch the server config while the mapping module
+  // downloads. Must finish before the first socket opens, which it does — that
+  // can't happen until the user clicks Start.
+  const [mappingModule, models] = await Promise.all([load(), applyServerConfig()]);
+  const mapping = mappingModule.createMapping();
+  console.info(`STT ${models.sttModel}  |  TTS ${models.ttsVoice}`);
 
   const bus = createAudioBus();
 
