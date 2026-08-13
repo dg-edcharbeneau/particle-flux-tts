@@ -163,7 +163,71 @@ export function createViz({ mapping, getAudio }) {
 
   // --- instanced mesh ---------------------------------------------------------
   const geometry = new THREE.TetrahedronGeometry(VIZ.size);
+  // Measure the geometry rather than assuming VIZ.size is its height: a
+  // tetrahedron of circumradius r spans only ±r/√3 in Y, so both the trail
+  // length maths and the shader's gradient normalisation need the real extent.
+  geometry.computeBoundingBox();
+  const geomHalfY = geometry.boundingBox.max.y;
+  const geomHeightY = geometry.boundingBox.max.y - geometry.boundingBox.min.y;
+
   const material = new THREE.MeshBasicMaterial({ color: 0xffffff });
+
+  // Trail shading. The loop stretches a falling particle along Y, but a stretched
+  // instance is a single flat colour — which just reads as a longer particle,
+  // not a trail. This injection gives it a gradient along its own length: the
+  // head keeps the particle's colour, the tail fades to the theme's trail
+  // colour.
+  //
+  // The stretch factor is recovered from the instance matrix rather than passed
+  // as another attribute — column 0 and column 1 are the X and Y basis vectors,
+  // so their lengths are the axis scales, and their ratio is exactly the
+  // stretch the loop applied.
+  const trailUniforms = {
+    uTrailColor: { value: new THREE.Color(theme.trailColor) },
+    uHalfHeight: { value: geomHalfY },
+  };
+  material.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, trailUniforms);
+
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        "#include <common>",
+        `#include <common>
+        varying float vTrail;
+        uniform float uHalfHeight;`
+      )
+      .replace(
+        "#include <begin_vertex>",
+        `#include <begin_vertex>
+        {
+          float sx = length( instanceMatrix[ 0 ].xyz );
+          float sy = length( instanceMatrix[ 1 ].xyz );
+          float stretch = sy / max( sx, 1e-4 );
+          // Self-normalising: 0 when unstretched, approaching 1 for long
+          // trails. No reference maximum to keep in sync with the CPU side.
+          float amount = clamp( 1.0 - 1.0 / max( stretch, 1.0 ), 0.0, 1.0 );
+          // Local +y is the head (where the particle actually is, leading the
+          // rise); -y is the tail streaming downward behind it.
+          float along = clamp( -position.y / uHalfHeight * 0.5 + 0.5, 0.0, 1.0 );
+          vTrail = along * amount;
+        }`
+      );
+
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        "#include <common>",
+        `#include <common>
+        varying float vTrail;
+        uniform vec3 uTrailColor;`
+      )
+      // After color_fragment so it blends over the per-instance colour, and
+      // before fog_fragment so the trail is fogged like everything else.
+      .replace(
+        "#include <color_fragment>",
+        `#include <color_fragment>
+        diffuseColor.rgb = mix( diffuseColor.rgb, uTrailColor, vTrail );`
+      );
+  };
   const mesh = new THREE.InstancedMesh(geometry, material, COUNT);
   mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   mesh.frustumCulled = false; // instances move well outside the initial bounds
@@ -268,21 +332,47 @@ export function createViz({ mapping, getAudio }) {
     mapping.prepare(audio, elapsed, dt, palette, G);
 
     const k = 1 - Math.exp(-VIZ.lerpPerSec * dt);
+    // Per-frame displacement converted to units/second, so trail length doesn't
+    // depend on frame rate.
+    const invDt = dt > 0 ? 1 / dt : 0;
+    const shutter = VIZ.trail.shutterSec;
+    const maxTrail = VIZ.trail.maxLength;
+
     for (let i = 0; i < COUNT; i++) {
       mapping.particle(i, G, out);
 
       const p = i * 3;
       pos[p] += (out.x - pos[p]) * k;
-      pos[p + 1] += (out.y - pos[p + 1]) * k;
+      const prevY = pos[p + 1];
+      pos[p + 1] += (out.y - prevY) * k;
       pos[p + 2] += (out.z - pos[p + 2]) * k;
 
+      // Trail: stretch along Y while rising. Motion in this field is almost
+      // entirely vertical, so Y *is* the velocity axis — no per-particle basis
+      // to build, and the matrix stays diagonal.
+      const dy = pos[p + 1] - prevY;
       const m = i * 16;
       const s = out.scale;
+
+      // Trail length is the distance travelled during the shutter — an
+      // absolute world-space length, converted to a stretch factor afterwards
+      // so it looks the same whatever size the particle happens to be.
+      let trailLen = 0;
+      let stretch = 1;
+      if (dy > 0) {
+        trailLen = dy * invDt * shutter;
+        if (trailLen > maxTrail) trailLen = maxTrail;
+        stretch = 1 + trailLen / (geomHeightY * s);
+      }
+
       M[m] = s;
-      M[m + 5] = s;
+      M[m + 5] = s * stretch;
       M[m + 10] = s;
       M[m + 12] = pos[p];
-      M[m + 13] = pos[p + 1];
+      // Scaling grows the shape about its centre, which would push the head
+      // above the particle. Offsetting by half the added length keeps the head
+      // put and lets the tail stream downward, behind the rise.
+      M[m + 13] = pos[p + 1] - trailLen * 0.5;
       M[m + 14] = pos[p + 2];
 
       const c = out.color;
@@ -316,6 +406,8 @@ export function createViz({ mapping, getAudio }) {
     scene.background = backdrop;
     bloomPass.threshold = theme.bloomThreshold;
     bloomPass.enabled = theme.bloomScale > 0;
+    // Shared uniform object, so the running shader picks this up immediately.
+    trailUniforms.uTrailColor.value.setHex(theme.trailColor);
     Object.assign(target, theme.palette[state] ?? theme.palette.idle);
   });
 

@@ -180,10 +180,22 @@ export function createMapping() {
       // rather than a Math.pow, which at 20k particles a frame would cost more
       // than the rest of the mapping combined.
       const shaped = interference * (1 + rawMag * CREST_BOOST);
-      const mag = shaped < 0 ? -shaped : shaped;
+
+      // Half-wave: the surface only ever sits at or above the base plane.
+      // Troughs flatten into still water and the crests read as jets rising out
+      // of it, which is the fountain the tuned export was reaching for.
+      //
+      // Chosen over |v| or v² deliberately: both of those fold the troughs
+      // upward and so double the spatial frequency, and the fringes are already
+      // finer than the particle grid can resolve (~1.9 particles per
+      // wavelength). Clamping leaves the frequency alone.
+      //
+      // `mag` is the clamped value, not |shaped| — a particle parked at base
+      // should be small and dim, not still full-size and glowing.
+      const mag = shaped > 0 ? shaped : 0;
 
       out.x = x;
-      out.y = shaped * amp;
+      out.y = mag * amp;
       out.z = z;
       out.scale = 0.5 + (mag < MAX_CREST ? mag : MAX_CREST) * 2.0;
 

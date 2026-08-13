@@ -22,6 +22,7 @@ import { connectSTT } from "./stt.js";
 import { connectTTS } from "./tts.js";
 import { createPlayer } from "./player.js";
 import { TTS } from "./config.js";
+import { respell } from "./pronounce.js";
 
 // The "response" seam. This demo echoes the user's finished turn back through
 // TTS so the full realtime loop (mic -> STT -> turn detection -> TTS -> barge-in)
@@ -203,7 +204,9 @@ export function createConversation({
     const speak = (piece) => {
       const t = (piece || "").trim();
       if (!t || activeTurnIndex !== turnIndex) return;
-      tts?.speak(t);
+      // Respell only what goes to the synthesizer — onTranscript has already
+      // fired with the real words, so the overlay stays truthful.
+      tts?.speak(respell(t));
       tts?.flush();
       outstandingFlushes++;
     };

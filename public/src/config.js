@@ -128,6 +128,20 @@ export const VIZ = {
   camera: [0, 26, 86],
   size: 0.25, // tetrahedron radius
   lerpPerSec: 9, // how fast a particle chases its target position
+  // Motion trails, modelled as a camera shutter: a rising particle smears over
+  // the distance it actually travels while the shutter is open. Falling
+  // particles are left alone, so the streaks mark the wavefront punching
+  // upward and settle back to crisp points on the way down.
+  //
+  // Length is deliberately absolute (world units) rather than a multiple of
+  // particle size. Particles are 0.25 units, so a "5x stretch" is still under
+  // one unit in a 120-unit field — invisible. Tying it to distance travelled
+  // also makes it frame-rate independent and scales it naturally with how
+  // energetic each mapping is.
+  trail: {
+    shutterSec: 0.05, // exposure time; longer = longer streaks
+    maxLength: 20, // world units, so a fall from a tall crest can't smear the frame
+  },
   // Bloom is fill-rate hungry and 20k instances already cost us. Capping the
   // pixel ratio keeps retina displays smooth; raise it if you have headroom.
   maxPixelRatio: 1.5,

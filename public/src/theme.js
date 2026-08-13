@@ -26,6 +26,10 @@ export const THEMES = {
     // Flat black on purpose — a gradient here would only band and dither, and
     // the glow already supplies all the depth this theme needs.
     gradient: null,
+    // Trails fade toward this along their length. Black here, so a tail simply
+    // dissolves into the backdrop the way a comet's does — a "shadow" on black
+    // would be nothing at all.
+    trailColor: 0x000000,
     fogDensity: 0.0075,
     bloomScale: 1,
     bloomThreshold: 0, // nothing to protect — the backdrop is black
@@ -72,6 +76,9 @@ export const THEMES = {
       // screen height measured from the top.
       bands: [],
     },
+    // A deep navy, so a falling particle drags a genuine shadow across the
+    // pale ground rather than fading out invisibly.
+    trailColor: 0x16243c,
     fogDensity: 0.0065,
     // Bloom stays on, but the threshold has to clear the backdrop's own
     // luminance (~0.27) or the pass blooms the background itself and greys the
