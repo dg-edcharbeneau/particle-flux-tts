@@ -14,6 +14,8 @@
 // the interference math was always for — the original export had srcDist pinned
 // at 1, which collapsed both sources onto the same point.
 
+import { shade } from "../theme.js";
+
 export function createMapping() {
   // Per-frame values, computed once in prepare() and read 20,000 times.
   let s1x = 0;
@@ -79,12 +81,9 @@ export function createMapping() {
       out.z = z;
       out.scale = 1 + mag * 0.7;
 
-      const sat = baseSat * (0.55 + mag * 0.5);
-      out.color.setHSL(
-        baseHue - interference * 0.12,
-        sat > 1 ? 1 : sat,
-        0.08 + (mag > 1 ? 1 : mag) * 0.42
-      );
+      // The theme turns "how energetic" into a lightness — bright on dark,
+      // deep on light.
+      shade(out.color, baseHue - interference * 0.12, baseSat * (0.55 + mag * 0.5), mag);
     },
   };
 }

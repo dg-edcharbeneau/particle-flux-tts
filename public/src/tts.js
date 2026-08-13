@@ -35,6 +35,12 @@ export function connectTTS({ token, onAudio, onOpen, onClose, onError, onControl
     encoding: TTS.encoding,
     sample_rate: String(TTS.sampleRate),
   });
+  // Delivery controls exist only on v2. Sending them to v1 would be rejected,
+  // and sending defaults is just noise, so both are conditional.
+  if (flux) {
+    if (TTS.speed !== 1) params.set("speed", String(TTS.speed));
+    if (TTS.expressivity !== 0) params.set("expressivity", String(TTS.expressivity));
+  }
   const path = flux ? "/v2/speak" : "/v1/speak";
   const ws = new WebSocket(`${DEEPGRAM_WS}${path}?${params}`, ["bearer", token]);
   ws.binaryType = "arraybuffer";

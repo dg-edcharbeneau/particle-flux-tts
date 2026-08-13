@@ -24,6 +24,55 @@ import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { VIZ } from "./config.js";
+import { getTheme, onThemeChange } from "./theme.js";
+
+/**
+ * Build the backdrop as a screen-space texture: a vertical gradient with
+ * optional soft horizontal light streaks.
+ *
+ * Only 4px wide — three stretches a plain (non-equirect) texture across the
+ * whole frame, and the image is uniform horizontally, so there's nothing to
+ * gain from more columns. That also means it never needs regenerating on
+ * resize. Returns null for themes that want a flat clear colour.
+ */
+function makeBackdrop(theme) {
+  const g = theme.gradient;
+  if (!g) return null;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = 4;
+  canvas.height = 512;
+  const ctx = canvas.getContext("2d");
+
+  const grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
+  grad.addColorStop(0, g.top);
+  if (g.mid) grad.addColorStop(g.midStop ?? 0.5, g.mid);
+  grad.addColorStop(1, g.bottom);
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Each streak is its own transparent -> white -> transparent gradient, which
+  // gives soft edges without needing a blur filter.
+  for (const band of g.bands ?? []) {
+    const half = (band.thickness * canvas.height) / 2;
+    const centre = band.at * canvas.height;
+    const streak = ctx.createLinearGradient(0, centre - half, 0, centre + half);
+    streak.addColorStop(0, "rgba(255,255,255,0)");
+    streak.addColorStop(0.5, `rgba(255,255,255,${band.alpha})`);
+    streak.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.fillStyle = streak;
+    ctx.fillRect(0, centre - half, canvas.width, half * 2);
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  // Canvas pixels are sRGB; without this three treats them as linear and the
+  // whole backdrop renders washed out.
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.minFilter = THREE.LinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  tex.generateMipmaps = false;
+  return tex;
+}
 
 /** Shortest-arc hue interpolation, so green -> magenta doesn't sweep through
  *  every hue in between the long way round. */
@@ -43,9 +92,18 @@ export function createViz({ mapping, getAudio }) {
   const COUNT = VIZ.count;
   const span = VIZ.span;
 
+  let theme = getTheme();
+
   // --- scene -----------------------------------------------------------------
   const scene = new THREE.Scene();
-  scene.fog = new THREE.FogExp2(0x000000, 0.0075);
+  // Fog must match the backdrop or the far field fades toward the wrong colour
+  // and the horizon shows a seam. With a gradient that can only be approximate,
+  // so theme.background is set to the gradient's midpoint — where the horizon
+  // and the most heavily fogged particles actually are.
+  scene.fog = new THREE.FogExp2(theme.background, theme.fogDensity);
+
+  let backdrop = makeBackdrop(theme);
+  scene.background = backdrop;
 
   const camera = new THREE.PerspectiveCamera(
     60,
@@ -61,6 +119,7 @@ export function createViz({ mapping, getAudio }) {
   });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, VIZ.maxPixelRatio));
   renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setClearColor(theme.background, 1);
   renderer.domElement.id = "viz";
   document.body.appendChild(renderer.domElement);
 
@@ -96,6 +155,10 @@ export function createViz({ mapping, getAudio }) {
     VIZ.bloom.radius,
     VIZ.bloom.threshold
   );
+  // The threshold must sit above the theme's own background luminance,
+  // otherwise the pass blooms the backdrop and greys out the frame.
+  bloomPass.threshold = theme.bloomThreshold;
+  bloomPass.enabled = theme.bloomScale > 0;
   composer.addPass(bloomPass);
 
   // --- instanced mesh ---------------------------------------------------------
@@ -159,8 +222,9 @@ export function createViz({ mapping, getAudio }) {
   const out = { x: 0, y: 0, z: 0, scale: 1, color: new THREE.Color() };
 
   // --- state-driven palette ---------------------------------------------------
-  const target = { ...VIZ.palette.idle };
-  const palette = { ...VIZ.palette.idle };
+  let state = "idle";
+  const target = { ...theme.palette.idle };
+  const palette = { ...theme.palette.idle };
 
   function easePalette(dt) {
     const t = 1 - Math.exp(-4 * dt);
@@ -188,7 +252,8 @@ export function createViz({ mapping, getAudio }) {
     easePalette(dt);
 
     // Louder audio -> more glow, and a livelier sweep.
-    bloomPass.strength = VIZ.bloom.strength * palette.bloom * (1 + audio.rms * 0.9);
+    bloomPass.strength =
+      VIZ.bloom.strength * theme.bloomScale * palette.bloom * (1 + audio.rms * 0.9);
 
     const phaseRate =
       ((Math.PI * 2) / VIZ.sweep.periodSec) * (1 + audio.rms * VIZ.sweep.audioBoost);
@@ -239,6 +304,21 @@ export function createViz({ mapping, getAudio }) {
   }
   window.addEventListener("resize", onResize);
 
+  // Swap backdrop, fog, bloom and palette when the user flips the theme. The
+  // palette re-targets rather than snapping, so the field eases across.
+  const unsubscribeTheme = onThemeChange((next) => {
+    theme = next;
+    scene.fog.color.setHex(theme.background);
+    scene.fog.density = theme.fogDensity;
+    renderer.setClearColor(theme.background, 1);
+    backdrop?.dispose();
+    backdrop = makeBackdrop(theme);
+    scene.background = backdrop;
+    bloomPass.threshold = theme.bloomThreshold;
+    bloomPass.enabled = theme.bloomScale > 0;
+    Object.assign(target, theme.palette[state] ?? theme.palette.idle);
+  });
+
   return {
     start() {
       if (running) return;
@@ -247,14 +327,17 @@ export function createViz({ mapping, getAudio }) {
       frame();
     },
     /** Conversation state drives the palette and glow. */
-    setState(state) {
-      Object.assign(target, VIZ.palette[state] ?? VIZ.palette.idle);
+    setState(next) {
+      state = next;
+      Object.assign(target, theme.palette[state] ?? theme.palette.idle);
     },
     dispose() {
       running = false;
       cancelAnimationFrame(raf);
+      unsubscribeTheme();
       window.removeEventListener("resize", onResize);
       controls.dispose();
+      backdrop?.dispose();
       geometry.dispose();
       material.dispose();
       composer.dispose();

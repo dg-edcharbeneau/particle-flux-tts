@@ -26,7 +26,7 @@
 // rises, so a loud voice literally carries further and the wavefronts sweep the
 // whole field.
 
-import { VIZ } from "../config.js";
+import { getTheme, shade } from "../theme.js";
 
 // Straight from the export's PARAMS block.
 const TUNED = {
@@ -94,9 +94,12 @@ export function createMapping() {
   // the crossfade read as a moving front rather than a global colour fade.
   let localWeight = 0.25;
 
-  const hueA = VIZ.palette.listening.hue; // green — you
-  const hueB = VIZ.palette.speaking.hue; // magenta — the agent
-  const hueSpan = hueB - hueA;
+  // Both speakers are on screen at once, so this mapping needs two hues rather
+  // than just the current state's. Re-read each frame so a theme switch takes
+  // effect — the light theme uses a blue pair (cyan / violet) in place of the
+  // dark theme's green / magenta.
+  let hueA = 0.44; // you
+  let hueSpan = 0.44; // distance to the agent's hue
 
   const follow = (current, target, dt) => {
     const rate = target > current ? ATTACK_PER_SEC : RELEASE_PER_SEC;
@@ -114,6 +117,10 @@ export function createMapping() {
       "Two speakers in dialogue: your voice radiates from the left in green, the agent's from the right in magenta. Only one ever holds the floor — watch the field sweep across on a barge-in.",
 
     prepare(audio, time, dt) {
+      const pal = getTheme().palette;
+      hueA = pal.listening.hue;
+      hueSpan = pal.speaking.hue - hueA;
+
       const live = audio.source === "mic" || audio.source === "tts";
       voice = follow(voice, live ? Math.min(1, audio.rms * DRIVE_GAIN) : 0, dt);
 
@@ -188,12 +195,7 @@ export function createMapping() {
       const localT = a2 / (a1 + a2 + 1e-6);
       const t = side + (localT - side) * localWeight;
 
-      const sat = 0.6 + mag * 0.4;
-      out.color.setHSL(
-        hueA + hueSpan * t,
-        sat > 1 ? 1 : sat,
-        0.07 + (mag > 1 ? 1 : mag) * 0.45
-      );
+      shade(out.color, hueA + hueSpan * t, 0.6 + mag * 0.4, mag);
     },
   };
 }

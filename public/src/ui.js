@@ -19,6 +19,9 @@ const STATE_LABEL = {
   error: "Error",
 };
 
+import { getThemeId, onThemeChange, toggleTheme } from "./theme.js";
+import { VOICE_GROUPS, isKnownVoice } from "./voices.js";
+
 const PAGES = [
   { id: "interference", href: "/index.html", label: "Interference" },
   { id: "amplitude", href: "/amplitude.html", label: "Amplitude" },
@@ -26,7 +29,32 @@ const PAGES = [
   { id: "resonance", href: "/resonance.html", label: "Resonance" },
 ];
 
-export function createUI({ mapping, onStart, onStop, onInterrupt }) {
+/**
+ * Options for the voice picker. Anything configured that isn't in the
+ * catalogue — a newer Flux voice, or an Aura voice for a non-English demo —
+ * is added as its own group so the picker never silently replaces it.
+ */
+function voiceOptions(current) {
+  const groups = VOICE_GROUPS.map(
+    (g) =>
+      `<optgroup label="${g.label}">` +
+      g.voices
+        .map(
+          (v) =>
+            `<option value="${v.id}"${v.id === current ? " selected" : ""}>${v.label}</option>`
+        )
+        .join("") +
+      `</optgroup>`
+  );
+  if (current && !isKnownVoice(current)) {
+    groups.unshift(
+      `<optgroup label="Configured"><option value="${current}" selected>${current}</option></optgroup>`
+    );
+  }
+  return groups.join("");
+}
+
+export function createUI({ mapping, voice, onStart, onStop, onInterrupt, onVoice }) {
   const root = document.createElement("div");
   root.id = "overlay";
   root.dataset.state = "idle";
@@ -40,7 +68,13 @@ export function createUI({ mapping, onStart, onStop, onInterrupt }) {
 
   root.innerHTML = `
     <header class="panel hero">
-      <nav class="nav" aria-label="Visualization">${nav}</nav>
+      <div class="hero-top">
+        <nav class="nav" aria-label="Visualization">${nav}</nav>
+        <button id="theme" type="button" class="theme-toggle" aria-pressed="false">
+          <span class="theme-icon" aria-hidden="true"></span>
+          <span class="visually-hidden">Switch theme</span>
+        </button>
+      </div>
       <h1 class="title">${mapping.title}</h1>
       <p class="blurb">${mapping.blurb}</p>
     </header>
@@ -56,6 +90,11 @@ export function createUI({ mapping, onStart, onStop, onInterrupt }) {
         <button id="start" type="button" class="btn btn-primary">Start listening</button>
         <button id="interrupt" type="button" class="btn" disabled>Stop speaking</button>
         <button id="stop" type="button" class="btn" disabled>Stop</button>
+      </div>
+
+      <div class="voice-row">
+        <label class="voice-label" for="voice">Voice</label>
+        <select id="voice" class="voice-select">${voiceOptions(voice)}</select>
       </div>
       <p id="error" class="error" role="alert" hidden></p>
     </section>
@@ -82,6 +121,31 @@ export function createUI({ mapping, onStart, onStop, onInterrupt }) {
   stopBtn.addEventListener("click", () => onStop());
   interruptBtn.addEventListener("click", () => onInterrupt());
 
+  // --- theme toggle -----------------------------------------------------------
+  // The button reports the theme it will switch *to*, which is what a screen
+  // reader user needs to hear before activating it. aria-pressed tracks whether
+  // light is currently on.
+  // --- voice picker -----------------------------------------------------------
+  // Flux TTS can only change `speed` mid-stream, not the voice, so switching
+  // needs a fresh socket. Rather than silently reconnecting under the user, the
+  // picker locks while a session is live and applies on the next Start.
+  const voiceSelect = $("voice");
+  voiceSelect.addEventListener("change", () => onVoice?.(voiceSelect.value));
+
+  const themeBtn = $("theme");
+  const themeIcon = themeBtn.querySelector(".theme-icon");
+  const themeLabel = themeBtn.querySelector(".visually-hidden");
+  function paintThemeButton() {
+    const light = getThemeId() === "light";
+    themeBtn.setAttribute("aria-pressed", String(light));
+    themeIcon.textContent = light ? "☀" : "☾";
+    themeLabel.textContent = light ? "Switch to dark theme" : "Switch to light theme";
+    themeBtn.title = themeLabel.textContent;
+  }
+  themeBtn.addEventListener("click", () => toggleTheme());
+  onThemeChange(paintThemeButton);
+  paintThemeButton();
+
   return {
     setState(state) {
       root.dataset.state = state;
@@ -91,6 +155,11 @@ export function createUI({ mapping, onStart, onStop, onInterrupt }) {
       stopBtn.disabled = !running;
       // Only stoppable when there's a response in flight to stop.
       interruptBtn.disabled = state !== "speaking" && state !== "thinking";
+      // Changing voice needs a new socket — see the note by the picker.
+      voiceSelect.disabled = running;
+      voiceSelect.title = running
+        ? "Stop the session to change voice"
+        : "Applies when you start listening";
 
       // Tell the viewer which audio the particles are following right now.
       sourceEl.textContent =

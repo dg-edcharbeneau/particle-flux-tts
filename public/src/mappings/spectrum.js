@@ -15,6 +15,8 @@
 // are pushed outward in proportion to their bin's energy so loud bands physically
 // bloom.
 
+import { shade } from "../theme.js";
+
 const SPIRAL_TURNS = 1.4; // how much the angle skews the bin lookup
 const TAU = Math.PI * 2;
 
@@ -79,12 +81,7 @@ export function createMapping() {
       // Hue tracks frequency, so you can read the spectrum by color as well as
       // by height. The spread is deliberately narrow — a full rainbow fights
       // with the state palette.
-      const sat = baseSat * (0.55 + mag * 0.5);
-      out.color.setHSL(
-        baseHue + (f / n - 0.5) * 0.32,
-        sat > 1 ? 1 : sat,
-        0.06 + mag * 0.55
-      );
+      shade(out.color, baseHue + (f / n - 0.5) * 0.32, baseSat * (0.55 + mag * 0.5), mag);
     },
   };
 }

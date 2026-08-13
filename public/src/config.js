@@ -32,6 +32,9 @@ export const TTS = {
   model: "flux-haley-en",
   encoding: "linear16",
   sampleRate: 24000, // valid on both endpoints (8k / 16k / 24k / 48k).
+  // Flux TTS only; the v1 Aura endpoint ignores these. Server-clamped.
+  speed: 1,
+  expressivity: 0,
 };
 
 /**
@@ -51,9 +54,11 @@ export async function applyServerConfig() {
   try {
     const res = await fetch("/api/config", { cache: "no-store" });
     if (!res.ok) throw new Error(`config request failed (${res.status})`);
-    const { ttsVoice, sttModel } = await res.json();
+    const { ttsVoice, sttModel, ttsSpeed, ttsExpressivity } = await res.json();
     if (ttsVoice) TTS.model = ttsVoice;
     if (sttModel) STT.model = sttModel;
+    if (Number.isFinite(ttsSpeed)) TTS.speed = ttsSpeed;
+    if (Number.isFinite(ttsExpressivity)) TTS.expressivity = ttsExpressivity;
   } catch (err) {
     console.warn(
       `Could not load server config; using defaults (${STT.model}, ${TTS.model}).`,
@@ -135,14 +140,6 @@ export const VIZ = {
     periodSec: 40, // one full there-and-back cycle
     audioBoost: 1.5, // louder audio sweeps faster
   },
-  // Base hue per conversation state. Mappings shift away from these, but the
-  // field always reads as "who is talking right now".
-  palette: {
-    idle: { hue: 0.58, sat: 0.35, bloom: 1.0 },
-    connecting: { hue: 0.58, sat: 0.5, bloom: 1.1 },
-    listening: { hue: 0.44, sat: 0.9, bloom: 1.5 }, // Deepgram green
-    thinking: { hue: 0.62, sat: 0.7, bloom: 1.3 }, // blue-violet
-    speaking: { hue: 0.88, sat: 0.95, bloom: 1.9 }, // magenta
-    error: { hue: 0.02, sat: 0.9, bloom: 1.2 }, // red
-  },
+  // Per-state hues, background, fog and bloom all live in ./theme.js, since
+  // they differ between the light and dark themes.
 };

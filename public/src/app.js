@@ -15,7 +15,8 @@ import { createUI } from "./ui.js";
 import { createConversation } from "./conversation.js";
 import { createAudioBus } from "./audio-bus.js";
 import { createViz } from "./viz.js";
-import { applyServerConfig } from "./config.js";
+import { applyServerConfig, TTS } from "./config.js";
+import { applyThemeAttribute } from "./theme.js";
 
 // Dynamic imports so each page ships only the mapping it actually uses.
 const MAPPINGS = {
@@ -54,6 +55,11 @@ function preflight() {
 }
 
 export async function boot(mappingId) {
+  // Stamp the saved theme before anything renders. The CSS already follows
+  // prefers-color-scheme on its own, so this only matters when the user's
+  // stored choice differs from their OS setting.
+  applyThemeAttribute();
+
   const load = MAPPINGS[mappingId];
   if (!load) throw new Error(`Unknown mapping "${mappingId}"`);
 
@@ -62,7 +68,16 @@ export async function boot(mappingId) {
   // can't happen until the user clicks Start.
   const [mappingModule, models] = await Promise.all([load(), applyServerConfig()]);
   const mapping = mappingModule.createMapping();
-  console.info(`STT ${models.sttModel}  |  TTS ${models.ttsVoice}`);
+
+  // Voice precedence, lowest to highest:
+  //   built-in default  ->  DEEPGRAM_TTS_VOICE  ->  mapping.voice  ->  picker
+  // A mapping may export `voice` to pair itself with a particular delivery, the
+  // same way it may export `camera`. None do by default.
+  if (mapping.voice) TTS.model = mapping.voice;
+  console.info(
+    `STT ${models.sttModel}  |  TTS ${TTS.model}` +
+      ` (speed ${TTS.speed}, expressivity ${TTS.expressivity})`
+  );
 
   const bus = createAudioBus();
 
@@ -74,12 +89,19 @@ export async function boot(mappingId) {
 
   const ui = createUI({
     mapping,
+    voice: TTS.model,
     onStart: () => {
       ui.clearError();
       conversation.start();
     },
     onStop: () => conversation.stop(),
     onInterrupt: () => conversation.interruptResponse(),
+    // connectTTS reads TTS.model at connect time, so this lands on the next
+    // session without any further plumbing.
+    onVoice: (id) => {
+      TTS.model = id;
+      console.info(`TTS voice -> ${id} (applies on next start)`);
+    },
   });
 
   const conversation = createConversation({

@@ -3,7 +3,7 @@
 A 20,000-instance Three.js particle field driven in realtime by a Deepgram voice
 loop: **Flux STT** (`/v2/listen`) for what you say, **Flux TTS** (`/v2/speak`)
 for what comes back — turn detection and expressive synthesis from the same
-model family, including native interruption on both sides. The same field renders three different ways — pick one from the
+model family, including native interruption on both sides. The same field renders four different ways — pick one from the
 nav in the top-left.
 
 The demo **echoes** each finished turn back to you, so you can see and hear both
@@ -26,7 +26,23 @@ Both live in `.env` — set and restart, no code change needed:
 ```bash
 DEEPGRAM_TTS_VOICE=flux-cliff-en
 DEEPGRAM_STT_MODEL=flux-general-en
+DEEPGRAM_TTS_SPEED=1.0          # 0.85 .. 1.15   (Flux TTS only)
+DEEPGRAM_TTS_EXPRESSIVITY=0     # -2 .. 2        (Flux TTS only)
 ```
+
+`speed` and `expressivity` are clamped server-side, so an out-of-range value
+warns at startup instead of killing the TTS socket at connect time. Expressivity
+is the one to play with: a more animated delivery has more dynamic range, which
+the particle field reacts to directly.
+
+The overlay also has a **voice picker**. Flux TTS can only change `speed`
+mid-stream, not the voice, so the picker locks while a session is live and
+applies on the next Start. Precedence, lowest to highest:
+
+    built-in default  ->  DEEPGRAM_TTS_VOICE  ->  mapping.voice  ->  picker
+
+A mapping may export `voice` to pair itself with a particular delivery, the same
+way it may export `camera`. None do by default.
 
 The server prints both at startup — along with the endpoint each resolves to —
 and serves them to the browser from `/api/config`. Unset or blank falls back to
@@ -52,7 +68,7 @@ transcribe but turns will never commit. The server warns loudly if you set one.
 Start talking again *while it's speaking* to see barge-in — Flux's `StartOfTurn`
 cuts the response off instantly, and the field snaps back from magenta to green.
 
-## The three visualizations
+## The four visualizations
 
 | Page | Mapping | What the audio does |
 |---|---|---|
@@ -61,7 +77,7 @@ cuts the response off instantly, and the field snaps back from magenta to green.
 | `/spectrum.html` | [Radial spectrum](public/src/mappings/spectrum.js) | A log-spaced FFT wrapped into a disc: 60 Hz at the center, 8 kHz at the rim. |
 | `/resonance.html` | [Voice resonance](public/src/mappings/resonance.js) | The two sources become *speakers*: you radiate from the left in green, the agent from the right in magenta, and their wavefronts interfere where they meet. |
 
-Conversation state drives the palette in all three: **green** while listening,
+Conversation state drives the palette in all four: **green** while listening,
 **violet** while thinking, **magenta** while speaking.
 
 ## How it fits together
@@ -87,10 +103,10 @@ Conversation state drives the palette in all three: **green** while listening,
   applies an asymmetric envelope (fast attack, slow release) so the field moves
   like a physical thing instead of strobing.
 * **`src/viz.js`** — the shared Three.js scene and animation loop.
-* **`src/mappings/*.js`** — the three strategies. Each answers one question per
+* **`src/mappings/*.js`** — the four strategies. Each answers one question per
   particle: where is it, and what color?
 
-### Adding a fourth visualization
+### Adding another visualization
 
 Write a module in `src/mappings/` exporting `createMapping()` with `prepare()`
 and `particle()`, register it in the `MAPPINGS` map in `src/app.js`, add it to

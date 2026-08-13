@@ -13,6 +13,8 @@
 // than mapping loudness to a single global height, where speech just looks like
 // uniform jitter.
 
+import { shade } from "../theme.js";
+
 const HISTORY = 200; // samples retained
 const STEP = 1 / 60; // seconds per sample — fixed, so ring speed is frame-rate independent
 
@@ -72,12 +74,7 @@ export function createMapping() {
       out.z = G.z[i];
       out.scale = 0.7 + level * 1.8;
 
-      const sat = baseSat * (0.5 + level * 0.6);
-      out.color.setHSL(
-        baseHue + level * 0.1,
-        sat > 1 ? 1 : sat,
-        0.07 + level * 0.5
-      );
+      shade(out.color, baseHue + level * 0.1, baseSat * (0.5 + level * 0.6), level);
     },
   };
 }

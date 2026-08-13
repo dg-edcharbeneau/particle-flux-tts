@@ -35,6 +35,26 @@ const API_KEY = process.env.DEEPGRAM_API_KEY;
 const DEFAULT_TTS_VOICE = "flux-haley-en";
 const DEFAULT_STT_MODEL = "flux-general-en";
 const TTS_VOICE = process.env.DEEPGRAM_TTS_VOICE?.trim() || DEFAULT_TTS_VOICE;
+
+// Delivery controls, Flux TTS only. Clamped here rather than trusted: an
+// out-of-range value is rejected by Deepgram at connect time, which surfaces as
+// a dead TTS socket rather than anything that points at the .env file.
+function clampEnv(name, fallback, min, max) {
+  const raw = process.env[name]?.trim();
+  if (!raw) return fallback;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) {
+    console.warn(`  Warning: ${name}="${raw}" is not a number; using ${fallback}.`);
+    return fallback;
+  }
+  const clamped = Math.min(max, Math.max(min, n));
+  if (clamped !== n) {
+    console.warn(`  Warning: ${name}=${n} is outside ${min}..${max}; using ${clamped}.`);
+  }
+  return clamped;
+}
+const TTS_SPEED = clampEnv("DEEPGRAM_TTS_SPEED", 1, 0.85, 1.15);
+const TTS_EXPRESSIVITY = clampEnv("DEEPGRAM_TTS_EXPRESSIVITY", 0, -2, 2);
 const STT_MODEL = process.env.DEEPGRAM_STT_MODEL?.trim() || DEFAULT_STT_MODEL;
 
 // Turn-taking here is driven entirely by Flux's TurnInfo events. Another model
@@ -100,7 +120,13 @@ async function handleToken(res) {
 // Server-owned settings the browser needs. Nothing secret goes in here — it is
 // world-readable, so it carries model names and nothing else.
 function handleConfig(res) {
-  send(res, 200, JSON.stringify({ ttsVoice: TTS_VOICE, sttModel: STT_MODEL }), {
+  const body = {
+    ttsVoice: TTS_VOICE,
+    sttModel: STT_MODEL,
+    ttsSpeed: TTS_SPEED,
+    ttsExpressivity: TTS_EXPRESSIVITY,
+  };
+  send(res, 200, JSON.stringify(body), {
     "Content-Type": "application/json; charset=utf-8",
     // no-store so editing .env and restarting takes effect on a plain reload.
     "Cache-Control": "no-store",
@@ -166,5 +192,8 @@ server.listen(PORT, () => {
   const speak = TTS_VOICE.startsWith("flux-") ? "/v2/speak" : "/v1/speak";
   console.log(`  STT:   ${STT_MODEL}  →  /v2/listen${dflt(process.env.DEEPGRAM_STT_MODEL?.trim())}`);
   console.log(`  Voice: ${TTS_VOICE}  →  ${speak}${dflt(process.env.DEEPGRAM_TTS_VOICE?.trim())}`);
+  if (speak === "/v2/speak") {
+    console.log(`  Delivery: speed ${TTS_SPEED}, expressivity ${TTS_EXPRESSIVITY}`);
+  }
   console.log(`  Token TTL: ${TOKEN_TTL_SECONDS}s  |  API key: server-side only\n`);
 });
