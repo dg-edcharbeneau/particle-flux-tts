@@ -107,7 +107,7 @@ export const ANALYSIS = {
 
 // --- Visualization -----------------------------------------------------------
 export const VIZ = {
-  count: 20000,
+  count: 12000,
   span: 120, // world units across the particle grid
   // Default camera — a low, near-horizon view (16.8° above the plane) placed so
   // the field runs off the bottom of the frame and well past both side edges.
